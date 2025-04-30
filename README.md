@@ -1,22 +1,16 @@
 # nf-larry
 
-nf-larry is the Nextflow implementation of LARRY analysis workflow that utilises CBUtools package which is a private package. 
+**nf-larry** is a Nextflow pipeline for the LARRY analysis workflow, leveraging the private `CBUtools` Python package for barcode analysis in single-cell sequencing data.
 
+LARRY technique was introduced in Weinreb et al 2020 Science paper: https://www.science.org/doi/10.1126/science.aaw3381
 
+## Overview
 
+LARRY analysis identifies and tracks clonal barcodes in single-cell data. The pipeline processes raw sequencing reads, applies quality control, assigns clones, and integrates clone information with gene expression (GEX) data.
 
-* QC metrics to output
-* Some standardised plots
-* Additional output as notebook or HTML like 10x cell ranger (summary report)
-* 
-
-
-
-
-
-
-
-
+**CBUtools** provides two key data structures:
+- **CBUSeries**: A Pandas Series with MultiIndex (Cell Barcode, LARRY Barcode, UMI), counting the frequency of each group.
+- **CBSeries**: A Pandas Series with MultiIndex (Cell Barcode, LARRY Barcode), counting the number of UMIs per group.
 
 ## How to run:
 
@@ -34,76 +28,67 @@ The recommended way to use nextflow is to run it in a screen session. These step
 * `main.nf` - the Nextflow pipeline that executes scAutoQC pipeline.
 * `nextflow.config` - the configuration script that allows the processes to be submitted to IBM LSF on Sanger's HPC and ensures correct environment is set via singularity container (this is an absolute path). Global default parameters are also set in this file and some contain absolute paths.
 * `bin/` - a folder that includes Python scripts used in each step
-  * `find_larry_seqs.py`: 
-* `RESUME-larry`
+  * `find_larry_seqs.py` - Extracts LARRY barcode sequences from sequencing reads and outputs a CBUSeries pickle file containing all matching reads.
+  * `larry_qc.py` - Runs the LARRY QC pipeline: applies read count, Hamming distance, and UMI filtering to a CBUSeries, generates a PDF QC report, and outputs a filtered CBSeries pickle.
+  * `assign_clones.py` - Assigns clone identities to cells based on filtered LARRY barcodes and outputs clone assignments for downstream analysis.
+  * `match_gex` - Matches LARRY barcode-derived clone assignments to gene expression (GEX) data, integrating clone and transcriptome information for each cell.
+* `RESUME-larry` -  a pre-made Nextflow run scripts for all steps
 * `Dockerfile` - a dockerfile to reproduce the environment used to run the pipeline.
 
 ## Workflow
 
-![](images/nf-cellsnplite-light.png#gh-light-mode-only)
-![](images/nf-cellsnplite-dark.png#gh-dark-mode-only)  
-This pipeline produces 10 outputs, each were detailed in their corresponding steps:
-* ***[output 1]:*** A VCF file listing genotyped SNPs and aggregated AD & DP infomation (without GT) `cellSNP.base.vcf.gz`
-* ***[output 2]:*** A SNP x cell sparse matrix in “Matrix Market exchange formats”, containing the allele depths of the alternative (ALT) alleles, the sum of allele depths of the reference and alternative alleles (REF+ALT) and the sum of allele depths of all the alleles other than REF and ALT.  `cellSNP.tag.(AD/DP/OTH).mtx`
-* ***[output 3]:*** A VCF file listing genotyped SNPs and aggregated AD & DP infomation (without GT) as a final output `cellSNP.base.vcf.gz`
-* ***[output 4]:*** A VCF file listing genotyped SNPs and aggregated AD & DP infomation per cell `cellSNP.cells.vcf.gz`
-* ***[output 5]:*** A SNP x cell sparse matrix in “Matrix Market exchange formats”, containing the allele depths of the alternative (ALT) alleles, the sum of allele depths of the reference and alternative alleles (REF+ALT) and the sum of allele depths of all the alleles other than REF and ALT as the final outputs `cellSNP.tag.(AD/DP/OTH).mtx`
+![](images/nf-larry-light.png#gh-light-mode-only)
+![](images/nf-larry-dark.png#gh-dark-mode-only)
 
-![](images/workflow_modes.png)  
-The default version of the pipeline runs 2-step approach as shown the diagram above. The other workflow (1-step approach) is more useful for smaller datasets since it involves both joint calling and genotyping, and therefore is substantially slower than 2-step approach.
-* `2step`: runs 2b-1a steps 
-* `1step`: runs 2a step
+### Inputs
 
-<details>
+The pipeline requires the following primary inputs, typically configured in RESUME script:
 
-<summary>Workflow: 2step/1step</summary>
+*  The main directory containing the paired-end FASTQ files (R1, R2) from the LARRY library preparation for each sample.
+*  The location of the corresponding Gene Expression data. This can be either a directory containing pre-processed H5AD files or STARsolo output directories.
+*  A path to a JSON file that maps the sample identifiers used in the LARRY library to the corresponding sample identifiers in the GEX library.
 
-```
-# to run 2step approach
-nextflow run cellgeni/nf-cellsnplite -r main \
-  -entry 2step \            # to choose run mode
-  --SAMPLEFILE /path/to/sample/file \
-  --project_tag test1 \   # to specify the run to add to the end of output folder (e.g. cellsnplite-results-test1)
-  --ansi-log false \
-  -resume
-```
-</details>
+### Outputs
 
+The pipeline generates the following outputs, organized by sample and step:
 
+1.  **Raw Barcode Reads (CBUSeries PKL):** Contains all sequences matching the LARRY barcode pattern extracted from FASTQ files, grouped by Cell Barcode, LARRY Barcode, and UMI (`find_larry_seqs.py`).
+2.  **Filtered Barcodes (CBSeries PKL):** High-confidence LARRY barcodes remaining after applying read count, Hamming distance, and UMI filtering (`larry_qc.py`).
+3.  **QC Report (PDF):** A detailed report with plots and metrics illustrating the effects of each QC filtering step (`larry_qc.py`).
+4.  **Clone Assignments (PKL):** A cell-level summary dataframe mapping each cell barcode to its assigned clone identity (`assign_clones.py`).
+5.  **Annotated GEX Data (H5AD):** Gene expression data integrated with the corresponding LARRY clone assignments for each cell (`match_gex.py`).
+6.  **Clone Assignment Table (TSV/CSV):** A simple tabular file listing cell barcodes and their assigned clone identities (`match_gex.py`).
+7.  **Clone Size Plot (PNG):** A plot visualizing the cumulative frequency distribution of clone sizes within the analyzed sample(s) (`match_gex.py`).
 
-### 1. `2b`  
+## Pipeline Steps
 
-This step genotypes the 10x sample in a pseudo-bulk manner without given SNPs.
+### 1. `FIND_LARRY_SEQS`
 
-This step requires a single input:
-  * BAM file from Cell Ranger or STARsolo
+This initial step takes paired-end FASTQ files (R1, R2) from LARRY library for each sample as input.
 
+It uses `cutadapt` to identify and extract LARRY barcode sequences from the raw sequencing reads based on a defined LARRY pattern. It then aggregates these sequences, grouping them by Cell Barcode (CBC), LARRY Barcode, and Unique Molecular Identifier (UMI), counting the reads for each unique combination.
 
-This step produces:  
-* * ***[output 1]:*** A VCF file listing genotyped SNPs and aggregated AD & DP infomation (without GT) `cellSNP.base.vcf.gz`
-* ***[output 2]:*** A SNP x cell sparse matrix in “Matrix Market exchange formats”, containing the allele depths of the alternative (ALT) alleles, the sum of allele depths of the reference and alternative alleles (REF+ALT) and the sum of allele depths of all the alleles other than REF and ALT.  `cellSNP.tag.(AD/DP/OTH).mtx`
+The output is a CBUSeries PKL file for each sample (Output 1), storing a Pandas Series with a MultiIndex (CBC, Barcode, UMI) where the values represent the read counts, capturing all potential LARRY reads before filtering.
 
-### 2. `1a`
+### 2. `LARRY_QC`
 
-This step genotypes single cells at a list of given SNPs (called heterouzygous variants in previous step 2b).
+Using the CBUSeries PKL file generated by `FIND_LARRY_SEQS`, this step performs crucial quality control on the extracted LARRY barcodes. It applies a series of filters, including minimum read count thresholds, Hamming distance-based correction/filtering for sequencing errors, and UMI count thresholds for barcode reliability. After filtering, the data is collapsed into a CBSeries (grouping by CBC and Barcode, summing UMIs).
 
+The process generates two outputs: a filtered CBSeries PKL file for each sample containing high-confidence LARRY barcodes (Output 2), and a comprehensive PDF QC report detailing the filtering process and results with plots and metrics (Output 3).
 
-This step produces: 
-* ***[output 3]:*** A VCF file listing genotyped SNPs and aggregated AD & DP infomation (without GT) as a final output `cellSNP.base.vcf.gz`
-* ***[output 4]:*** A VCF file listing genotyped SNPs and aggregated AD & DP infomation per cell `cellSNP.cells.vcf.gz`
-* ***[output 5]:*** A SNP x cell sparse matrix in “Matrix Market exchange formats”, containing the allele depths of the alternative (ALT) alleles, the sum of allele depths of the reference and alternative alleles (REF+ALT) and the sum of allele depths of all the alleles other than REF and ALT as the final outputs `cellSNP.tag.(AD/DP/OTH).mtx`
+### 3. `ASSIGN_CLONES`
 
-### 3. `2a`  
+This step takes the filtered CBSeries PKL file from `LARRY_QC` as input. Based on the QC'd LARRY barcodes present in each cell (CBC), it assigns a unique clone identity to each cell. Specific logic is employed to handle cells with multiple barcodes or ambiguous assignments.
 
-This step genotypes the single cells without given SNPs. It does joint calling and genotyping, therefore it is substantially slower than 2-step approach, and it is only useful for smaller datasets, or for small chromosomes (mitochondrial).
+The output is a PKL file (potentially aggregated for multiple samples) containing a cell-level summary dataframe that maps each cell barcode to its assigned clone identity (Output 4).
+
+### 4. `MATCH_GEX`
+
+This final step requires three inputs: the cell-level summary PKL file from `ASSIGN_CLONES`, the Gene Expression (GEX) data path (H5AD files or STARsolo outputs), and a JSON file mapping LARRY sample IDs to GEX sample IDs. It integrates the LARRY-derived clone assignments with the GEX data by matching cells based on their barcodes. The clone information is added to the cell metadata of GEX data.
+
+The outputs include annotated H5AD object(s) with integrated clone information (Output 5), a TSV/CSV file mapping cell barcodes to clone assignments (Output 6), and a PNG plot visualizing the cumulative frequency of clone sizes (Output 7).
 
 
-This step produces:  
-* ***[output 3]:*** A VCF file listing genotyped SNPs and aggregated AD & DP infomation (without GT) as a final output `cellSNP.base.vcf.gz`
-* ***[output 4]:*** A VCF file listing genotyped SNPs and aggregated AD & DP infomation per cell `cellSNP.cells.vcf.gz`
-* ***[output 5]:*** A SNP x cell sparse matrix in “Matrix Market exchange formats”, containing the allele depths of the alternative (ALT) alleles, the sum of allele depths of the reference and alternative alleles (REF+ALT) and the sum of allele depths of all the alleles other than REF and ALT as the final outputs `cellSNP.tag.(AD/DP/OTH).mtx`
+## Changelog
 
-
-# Changelog
-
-For a version history/changelog, please see the [CHANGELOG file](CHANGELOG.md).
+See [CHANGELOG.md](CHANGELOG.md) for version history.
