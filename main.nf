@@ -90,3 +90,23 @@ workflow {
     MATCH_GEX(ASSIGN_CLONES.out)
 
 }
+
+
+workflow from_qc {
+    Channel.fromPath(params.barm_csv)
+        .splitCsv(header: false)
+        .map { row -> tuple(row[0], file(row[1])) }
+        .set { barm_tuples }
+
+    LARRY_QC(barm_tuples)
+
+    if (params.combine_samples) {
+        ASSIGN_CLONES(tuple(LARRY_QC.out[0].collect(){ it[0] }, LARRY_QC.out[0].collect(){ it[1] }))
+    } else {
+        // Use each output separately
+        ASSIGN_CLONES(LARRY_QC.out[0])
+    }
+
+    MATCH_GEX(ASSIGN_CLONES.out)
+
+}
