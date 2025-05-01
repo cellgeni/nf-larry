@@ -25,6 +25,7 @@ process LARRY_QC {
 
   output:
   tuple val(samp), path("*.pkl")
+  path("*.pdf"), optional: true
 
   script:
   """
