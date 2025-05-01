@@ -28,7 +28,7 @@ process LARRY_QC {
 
   script:
   """
-  python ${baseDir}/bin/larry_qc.py ${pkl} ${samp} "${params.check_whitelist}" ${params.plot_qc}
+  python ${baseDir}/bin/larry_qc.py ${pkl} ${samp} ${params.check_whitelist ? '--check_whitelist' : ''} ${params.make_pdf ? '--make_pdf' : ''}
   """
 }
 
@@ -61,7 +61,7 @@ process MATCH_GEX {
 
   script:
   """
-  python ${baseDir}/bin/match_gex.py ${samp} ${pkl} ${params.sample_list} ${params.gex_path} "${params.combine_samples}" "${params.plot_cumulative}"
+  python ${baseDir}/bin/match_gex.py ${samp} ${pkl} ${params.sample_json} ${params.gex_path} ${params.combine_samples ? '--combine_samples' : ''} ${params.plot_cumulative ? '--plot_cumulative' : ''}
   """
 }
 
