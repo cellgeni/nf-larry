@@ -66,15 +66,21 @@ process MATCH_GEX {
 }
 
 
-workflow {
-    def samples = new groovy.json.JsonSlurper().parseText(file(params.sample_list).text).keySet() as List
+workflow all {
+ // Read JSON file and extract keys as a Groovy list
+    def jsonFile = file(params.sample_json)
+    def jsonText = jsonFile.text
+    def sample_keys = new groovy.json.JsonSlurper().parseText(jsonText).keySet() as List
 
-    Channel.fromFilePairs("${params.fastqs_path}/*_S1_L001_R[12]_001.fastq.gz", flat: true)
+    // Now sample_keys contains: ['sample1_larry', 'sample2_larry', ...]
+    println(sample_keys)
+
+    // Example: filter file pairs using these keys
+    ch_pairs = Channel.fromFilePairs("${params.fastqs_path}/(.+)_S1_L001_R[12]_001.fastq.gz", flat: true)
         .filter { pair -> 
             def (sample, files) = pair
-            samples.contains(sample)
+            sample_keys.contains(sample)
         }
-        .map { it -> it }
         .set { filtered_pairs }
 
     FIND_LARRY_SEQS(filtered_pairs)
