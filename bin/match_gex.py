@@ -32,12 +32,10 @@ def match_gex(sampl, bar5_pkl, samples_json, gex_path, combine_samples, plot_cum
 
 	tmp["Clone"] = tmp["Barcode"].map(barcode_to_clone)
 
-	
-
-	if combine_samples == 'true':
+	if combine_samples:
 		tmp['sample_larry'] = [i.split("_")[0] for i in tmp.index]
 		tmp['sample_gex'] = tmp['sample_larry'].map(samples)
-		tmp.index = [f"{j}_{i.split('_')[1]}" for i, j in zip(tmp.index, tmp['sample_gex'])]
+		tmp.index = [f"{i.split('_')[1]}-{j}" for i, j in zip(tmp.index, tmp['sample_gex'])]
 		tmp['sample_larry'] = tmp.index.str.split('_').str[0]
 		if all(i.endswith("h5ad") for i in glob.glob(f"{gex_path}/*")): # h5ads are ready
 			# assuming all h5ad files include sanger_id and barcodes columns
@@ -51,16 +49,16 @@ def match_gex(sampl, bar5_pkl, samples_json, gex_path, combine_samples, plot_cum
 					adata_tmp.obs['barcodes'] = adata_tmp.obs_names
 					adata_tmp.obs['sanger_id'] = samp
 					adata.append(adata_tmp)
-		adata.obs_names = [f"{i}_{j}"for i, j in zip(adata.obs['sanger_id'], adata.obs['barcodes'])]
+		adata.obs_names = [f"{i}-{j}"for i, j in zip(adata.obs['sanger_id'], adata.obs['barcodes'])]
 	else:
 		tmp['sample_larry'] = sampl
+		tmp['sample_gex'] = tmp['sample_larry'].map(samples)
+		tmp.index = [f"{i}-{j}" for i, j in zip(tmp.index, tmp['sample_gex'])]
 		if all(i.endswith("h5ad") for i in glob.glob(f"{gex_path}/*")):
 			h5ad_path = glob.glob(f"{gex_path}/{samp_gex}*.h5ad")[0]
 			adata = sc.read(h5ad_path)
 		else:
 			adata = sc.read_10x_mtx(f"{gex_path}/{sampl}/output/Gene/filtered")
-
-	tmp['sample_gex'] = tmp['sample_larry'].map(samples)
 	
 	clones = tmp[['Clone', 'Barcode', 'Barcode_n']].reset_index(drop=True).set_index("Clone").drop_duplicates()
 	clones['sing_or_mult'] = ['multi' if i > 1 else 'single' for i in clones['Barcode_n']]
@@ -69,7 +67,7 @@ def match_gex(sampl, bar5_pkl, samples_json, gex_path, combine_samples, plot_cum
 
 	adata.obs["Clone"] = tmp1["Clone"].reindex(adata.obs_names)
 
-	if plot_cumulative == 'true':
+	if plot_cumulative:
 		import matplotlib.pyplot as plt
 
 		cumulative_counts = adata.obs['Clone'].value_counts().sort_values(ascending=False).cumsum()
@@ -79,30 +77,6 @@ def match_gex(sampl, bar5_pkl, samples_json, gex_path, combine_samples, plot_cum
 		cum_df.columns = ['Clone', 'Cumulative', 'Count']
 
 		plot_df = cum_df[cum_df['Count'] > 1]
-
-		clones_single = clones[clones['sing_or_mult'] == 'single']
-		clones_multi = clones[clones['sing_or_mult'] == 'multi']
-
-		# Preprocess: build a mapping from each barcode fragment to the full row indices of clones_multi
-		barcode_to_mult_rows = defaultdict(list)
-
-		for idx, row in clones_multi.iterrows():
-			for part in row['Barcode'].split('-'):
-				barcode_to_mult_rows[part].append(idx)
-
-		# Build the rows
-		rows = []
-
-		for cl_sing_idx, row_sing in clones_single.iterrows():
-			barcode = row_sing['Barcode']
-			matching_idxs = barcode_to_mult_rows.get(barcode, [])
-			clones_multi_similar = list(clones_multi.loc[matching_idxs].index)
-			
-			rows.append({
-				'Clone_single': cl_sing_idx,
-				'Clones_multi_similar': clones_multi_similar,
-				'n_clones_similar': len(clones_multi_similar)
-			})
 
 		# Plot
 		plt.figure(figsize=(9, 7))
