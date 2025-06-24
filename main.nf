@@ -117,3 +117,25 @@ workflow from_qc {
     MATCH_GEX(ASSIGN_CLONES.out)
 
 }
+
+workflow until_clones {
+ // Read JSON file and extract keys as a Groovy list
+    def jsonFile = file(params.sample_json)
+    def jsonText = jsonFile.text
+    def sample_keys = new groovy.json.JsonSlurper().parseText(jsonText).keySet() as List
+
+    // Now sample_keys contains: ['sample1_larry', 'sample2_larry', ...]
+    println(sample_keys)
+
+    // Example: filter file pairs using these keys
+    ch_pairs = Channel.fromFilePairs("${params.fastqs_path}/(.+)_S1_L001_R[12]_001.fastq.gz", flat: true)
+        .filter { pair -> 
+            def (sample, files) = pair
+            sample_keys.contains(sample)
+        }
+        .set { filtered_pairs }
+
+    FIND_LARRY_SEQS(filtered_pairs)
+    LARRY_QC(FIND_LARRY_SEQS.out)
+
+}
