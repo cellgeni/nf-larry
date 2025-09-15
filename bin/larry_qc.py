@@ -33,9 +33,6 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
-
-#  Project code (mounted in /opt inside the container)
-sys.path.append("/opt")
 import cbutools as cbu  # gives us CBUSeries / CBSeries
 
 # ────────────────────────────────────────────────────────────────────────

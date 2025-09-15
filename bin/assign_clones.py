@@ -1,5 +1,4 @@
 import sys
-sys.path.append("/opt")
 import cbutools as cbu
 import pandas as pd
 import fire
