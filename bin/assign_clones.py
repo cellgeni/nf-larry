@@ -10,7 +10,7 @@ def open_from_pickle(sample_i):
         bar_m = pickle.load(handle)
     return bar_m
 
-def assign_barcodes_examine_combination(bar_5, combine_samples=False, dispr_filter=None):
+def assign_barcodes_examine_combination(bar_5, dispr_filter=None):
 
     """Assign barcodes to cell
 
@@ -29,12 +29,12 @@ def assign_barcodes_examine_combination(bar_5, combine_samples=False, dispr_filt
             DataFrame with barcodes assigned per cell
 
         """
-    
-    if combine_samples == 'true':
+
+    if len(bar_5.split(',')) > 1:
         res_tabs2 = sorted(bar_5.split(','))
         res_tabs2_new = []
         for bar5 in res_tabs2:
-            samp = bar5.split("-")[0]
+            samp = bar5.split("_")[0]
             s = open_from_pickle(bar5)	
             new_cbc = s.index.get_level_values(0).map(lambda x: f"{samp}_{x}")
             new_index = pd.MultiIndex.from_arrays(
