@@ -1,9 +1,5 @@
 # nf-larry
 
-**nf-larry**: A scalable and reproducible workflow for lineage tracing with **LARRY** (Lineage And RNA Recovery) barcodes in single-cell RNA-seq.
-
-LARRY delivers heritable DNA barcodes via lentiviral libraries; because the barcode is transcribed and captured in scRNA-seq, it enables clonal lineage tracing while measuring gene expression.  
-
 **nf-larry** is a Nextflow pipeline for the LARRY analysis workflow, leveraging the private `CBUtools` Python package for barcode analysis in single-cell sequencing data.
 
 LARRY technique was introduced in Weinreb et al 2020 Science paper: https://www.science.org/doi/10.1126/science.aaw3381
@@ -78,7 +74,7 @@ The pipeline generates the following outputs, organized by sample and step:
 
 ## Pipeline Steps
 
-### 1. `CONCAT_FASTQS`
+### 1. `CONCAT_FASTQS`
 
 This initial step collapses lane-split FASTQs into one R1/R2 file per sample. It performs lossless concatenation and standardizes file naming for clean downstream matching.  
 
