@@ -42,30 +42,37 @@ import cbutools as cbu  # gives us CBUSeries / CBSeries
 #  📊  Plotting helpers
 
 def _hist_counts(series, groupby, title, xlabel, *, bins: int = 50):
-    """Return a Figure with a log‑scaled histogram of grouped counts."""
-    fig, ax = plt.subplots(figsize=(4, 4))
+    """Return a Figure with a log-scaled histogram of grouped counts."""
+    # use constrained layout to keep axes/labels visible
+    fig, ax = plt.subplots(figsize=(4, 4), constrained_layout=True)
+
     grouped = series.groupby(groupby).sum()
     ax.hist(np.log10(grouped), bins=bins)
     ax.set_title(title)
     ax.set_xlabel(xlabel)
-    ax.set_ylabel("Frequency")
+    ax.set_ylabel("Frequency", labelpad=6)
     ax.set_yscale("log")
 
     vmax = grouped.max()
     ticks = ceil(np.log10(vmax)) + 1
-    labels = np.logspace(0, np.log10(10 ** (ticks - 1)), ticks, dtype=int)
-    ax.set_xticks(range(ticks), labels)
+    ax.set_xticks(range(ticks))
+    ax.set_xticklabels([rf"$10^{i}$" if i else "1" for i in range(ticks)])
+    ax.tick_params(axis="x", labelsize=8)
+    ax.tick_params(axis="y", labelsize=8)
+    ax.margins(x=0.02)
     return fig
 
 
 def _barcode_elbow(series, title):
     """Return a Figure with the classic elbow plot (#barcodes per cell)."""
-    fig, ax = plt.subplots(figsize=(4, 4))
+    fig, ax = plt.subplots(figsize=(4, 4), constrained_layout=True)
     ordered = series.sort_values(ascending=False)
     ax.plot(range(len(ordered)), ordered, marker=".")
     ax.set_title(title)
     ax.set_xlabel("Cells (sorted)")
-    ax.set_ylabel("# barcodes per cell")
+    ax.set_ylabel("# barcodes per cell", labelpad=6)
+    ax.tick_params(axis="x", labelsize=8)
+    ax.tick_params(axis="y", labelsize=8)
     return fig
 
 # ────────────────────────────────────────────────────────────────────────
@@ -90,10 +97,20 @@ class PdfReport:
 
     # —— high‑level helpers ———————————————————————————————
     def add_text(self, title: str, body: str):
-        fig = plt.figure(figsize=(8.27, 11.69))  # A4 portrait
-        fig.text(0.5, 0.9, title, ha="center", va="top", size=16, weight="bold")
-        fig.text(0.05, 0.8, textwrap.fill(body, 95), va="top", size=11)
-        self._pdf.savefig(fig)
+        # A4 portrait with constrained layout so margins/labels are clean
+        fig = plt.figure(figsize=(8.27, 11.69), constrained_layout=True)
+        fig.text(0.5, 0.92, title, ha="center", va="top", size=18, weight="bold")
+
+        # Render each line with spacing; preserves explicit \n in body
+        y = 0.82
+        for line in body.splitlines():
+            if not line.strip():
+                y -= 0.02  # small gap for blank lines
+                continue
+            fig.text(0.08, y, line, va="top", size=12)
+            y -= 0.05
+
+        self._pdf.savefig(fig, bbox_inches="tight")
         plt.close(fig)
 
     def add_fig(self, fig):
