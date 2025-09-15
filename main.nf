@@ -61,7 +61,7 @@ process LARRY_QC {
   """
 }
 
-process ASSIGN_CLONES {
+process ASSIGN_BARCODES {
 
   publishDir "${launchDir}/larry-results-${params.project_tag}/clones/", mode: 'copy', saveAs: {filename -> "${group}_${filename}"}
 
@@ -73,7 +73,7 @@ process ASSIGN_CLONES {
 
   script:
   """
-  python ${baseDir}/bin/assign_clones.py ${pkl.join(",")} ${params.dispr_filter}
+  python ${baseDir}/bin/assign_barcodes.py ${pkl.join(",")} ${params.dispr_filter}
   """
 }
 
@@ -206,9 +206,9 @@ workflow all {
     LARRY_QC.out[0].groupTuple(by: 2)
         .set {samples_clones}
 
-    ASSIGN_CLONES(samples_clones)
+    ASSIGN_BARCODES(samples_clones)
 
-    MATCH_GEX(ASSIGN_CLONES.out)
+    MATCH_GEX(ASSIGN_BARCODES.out)
 
 }
 
@@ -222,12 +222,12 @@ workflow from_qc {
     LARRY_QC(barm_tuples)
 
     if (params.combine_samples) {
-        ASSIGN_CLONES(tuple(LARRY_QC.out[0].collect(){ it[0] }, LARRY_QC.out[0].collect(){ it[1] }))
+        ASSIGN_BARCODES(tuple(LARRY_QC.out[0].collect(){ it[0] }, LARRY_QC.out[0].collect(){ it[1] }))
     } else {
         // Use each output separately
-        ASSIGN_CLONES(LARRY_QC.out[0])
+        ASSIGN_BARCODES(LARRY_QC.out[0])
     }
 
-    MATCH_GEX(ASSIGN_CLONES.out)
+    MATCH_GEX(ASSIGN_BARCODES.out)
 
 }
