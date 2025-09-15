@@ -2,11 +2,12 @@
 
 set -euo pipefail
 
-nextflow run main.nf \
-  --sample_list /lustre/scratch127/cellgen/cellgeni/cakirb/nf-larry/samples_kit.json \
-  --fastqs_path /lustre/scratch126/cellgen/team298/projects/larry/kittest_data/fastqs/larry \
-  --gex_path /lustre/scratch126/cellgen/team298/projects/larry/larry5_GEX/objects \
-  --project_tag kittest \
+nextflow run cellgeni/nf-larry -r main\
+  -entry all \
+  --fastqs_path /lustre/scratch127/cellgen/cellgeni/bc8/larry/fastqs \
+  --sample_csv /lustre/scratch127/cellgen/cellgeni/bc8/_repos/nf-larry/examples/samples_larry_b3_v2.csv \
+  --gex_path /lustre/scratch127/cellgen/cellgeni/bc8/larry/starsolo-results \
+  --project_tag test \
   --plot_cumulative true \
   --ansi-log false \
   -resume

@@ -1,2 +1,3 @@
-samp1,/path/to/samp1-CBU_bar_m.pkl
-samp2,/path/to/samp2-CBU_bar_m.pkl
+sample_larry,sample_gex,group_id,pkl_larry
+samp1,samp1_gex,group1,/path/to/samp1-CBU_bar_m.pkl
+samp2,samp2_gex,group2,/path/to/samp2-CBU_bar_m.pkl
