@@ -30,14 +30,15 @@ process FIND_LARRY_SEQS {
   publishDir "${launchDir}/larry-results-${params.project_tag}/before_qc/", mode: 'copy'
 
   input:
-  tuple val(samp), path(r1_file), path(r2_file)
+  tuple val(larry_samp), val(gex_samp), val(group), path(r1_file), path(r2_file)
 
   output:
-  tuple val(samp), path("*.pkl")
+  tuple val(larry_samp), val(gex_samp), val(group), path("*.pkl")
 
   script:
   """
-  python ${baseDir}/bin/find_larry_seqs.py ${params.fastqs_path} ${r1_file} ${r2_file} ${samp}
+  export PIGZ='-p 8' 
+  python ${baseDir}/bin/find_larry_seqs.py ${params.fastqs_path} ${r1_file} ${r2_file} ${larry_samp}
   """
 }
 
@@ -46,31 +47,33 @@ process LARRY_QC {
   publishDir "${launchDir}/larry-results-${params.project_tag}/after_qc/", mode: 'copy'
 
   input:
-  tuple val(samp), path(pkl)
+  tuple val(larry_samp), val(gex_samp), val(group), path(pkl)
 
   output:
-  tuple val(samp), path("*.pkl")
+  tuple val(larry_samp), val(gex_samp), val(group), path("*.pkl")
   path("*.pdf"), optional: true
+
+  memory { pkl.size() < 300.MB ? ( 97.GB * ( pkl.size() / ( 1024 * 1024 * 1024 ) ) * task.attempt ) : 160.GB * task.attempt }
 
   script:
   """
-  python ${baseDir}/bin/larry_qc.py ${pkl} ${samp} ${params.check_whitelist ? '--check_whitelist' : ''} ${params.make_pdf ? '--make_pdf' : ''}
+  python ${baseDir}/bin/larry_qc.py ${pkl} ${larry_samp} ${params.check_whitelist ? '--check_whitelist' : ''} ${params.make_pdf ? '--make_pdf' : ''} --whitelist_csv ${baseDir}/data/larry_whitelist.csv
   """
 }
 
 process ASSIGN_CLONES {
 
-  publishDir "${launchDir}/larry-results-${params.project_tag}/clones/", mode: 'copy', saveAs: {filename -> "${samp}_${filename}"}
+  publishDir "${launchDir}/larry-results-${params.project_tag}/clones/", mode: 'copy', saveAs: {filename -> "${group}_${filename}"}
 
   input:
-  tuple val(samp), path(pkl)
+  tuple val(larry_samp), val(gex_samp), val(group), path(pkl)
 
   output:
-  tuple val(samp), path("*.pkl")
+  tuple val(larry_samp), val(gex_samp), val(group), path("*.pkl")
 
   script:
   """
-  python ${baseDir}/bin/assign_clones.py ${pkl.join(",")} "${params.combine_samples}" ${params.dispr_filter}
+  python ${baseDir}/bin/assign_clones.py ${pkl.join(",")} ${params.dispr_filter}
   """
 }
 
@@ -79,15 +82,17 @@ process MATCH_GEX {
   publishDir "${launchDir}/larry-results-${params.project_tag}/clones/", mode: 'copy'
 
   input:
-  tuple val(samp), path(pkl)
+  tuple val(larry_samp), val(gex_samp), val(group), path(pkl)
 
   output:
-  tuple val(samp), path("*.h5ad"), path("*.csv")
+  tuple val(larry_samp), path("*.h5ad"), path("*.csv")
   path("*.png"), optional: true
+
+  memory = { 8.GB * Math.max(1, ((larry_samp.size() / 2) as int)) * task.attempt }
 
   script:
   """
-  python ${baseDir}/bin/match_gex.py ${samp} ${pkl} ${params.sample_json} ${params.gex_path} ${params.combine_samples ? '--combine_samples' : ''} ${params.plot_cumulative ? '--plot_cumulative' : ''}
+  python ${baseDir}/bin/match_gex.py ${larry_samp.join(',')} ${params.sample_csv} ${params.ss_out} ${group} ${pkl} ${params.gex_path} ${params.plot_cumulative ? '--plot_cumulative' : ''}
   """
 }
 
