@@ -166,11 +166,13 @@ def _run_filters(bar_m, *, min_reads: int, min_hamming: int, min_umis: int):
         objs.append(obj)
 
     # —— step 0 : raw ——
+    logging.info("Collecting raw metrics")
     _collect("raw", bar_m)
     figs.append(_hist_counts(bar_m, ["CBC", "Barcode"],
                              "Raw reads per CBC–Barcode", "Read counts (log10)"))
 
     # —— step 1 : minimum reads ——
+    logging.info("Filtering by minimum reads")
     bar2 = bar_m.filter_by_reads(["CBC", "Barcode"], min_reads)
     _collect(f"reads ≥ {min_reads}", bar2)
     figs.append(_hist_counts(bar2, ["CBC", "Barcode"],
@@ -178,7 +180,8 @@ def _run_filters(bar_m, *, min_reads: int, min_hamming: int, min_umis: int):
     figs.append(_barcode_elbow(bar2.groupby("CBC").size(),
                                "# barcodes per cell after reads filter"))
 
-        # —— step 2 : hamming distance ——
+    # —— step 2 : hamming distance ——
+    logging.info("Filtering by Hamming distance")
     prev_figs = set(plt.get_fignums())
     bar3 = bar2.filter_by_hamming(min_distance=min_hamming)
     if hasattr(bar3, "_hamming_fig"):
@@ -188,12 +191,14 @@ def _run_filters(bar_m, *, min_reads: int, min_hamming: int, min_umis: int):
                                f"# barcodes per cell after hamming ≥ {min_hamming}"))
 
     # —— step 3 : collapse to UMI —— : collapse to UMI ——
+    logging.info("Collecting collapse to UMI metrics")
     bar4 = bar3.count_UMI()  # CBSeries
     _collect("collapse to UMI", bar4)
     figs.append(_hist_counts(bar4, ["CBC", "Barcode"],
                              "UMIs per CBC–Barcode", "UMI counts (log10)"))
 
     # —— step 4 : minimum UMIs ——
+    logging.info("Filtering by minimum UMIs")
     bar5 = bar4.filter_by_UMI(["CBC", "Barcode"], min_umis)
     _collect(f"UMIs ≥ {min_umis}", bar5)
     figs.append(_hist_counts(bar5, ["CBC", "Barcode"],
