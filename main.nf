@@ -1,5 +1,30 @@
 #!/usr/bin/env nextflow
 
+process CONCAT_FASTQS {
+    tag "${sample_id}"
+    publishDir "${launchDir}/larry-results-${params.project_tag}/concat_fastqs/", mode: 'copy'
+    
+    input:
+    tuple val(sample_id), path(r1_files), path(r2_files)
+    
+    output:
+    tuple val(sample_id), path("${sample_id}_R1.fastq.gz"), path("${sample_id}_R2.fastq.gz"), emit: concatenated
+    
+    when:
+    r1_files.size() > 1 || r2_files.size() > 1
+    
+    script:
+    def r1_list = r1_files instanceof List ? r1_files.join(' ') : r1_files
+    def r2_list = r2_files instanceof List ? r2_files.join(' ') : r2_files
+    """
+    # Concatenate R1 files
+    cat ${r1_list} > ${sample_id}_R1.fastq.gz
+    
+    # Concatenate R2 files  
+    cat ${r2_list} > ${sample_id}_R2.fastq.gz
+    """
+}
+
 process FIND_LARRY_SEQS {
 
   publishDir "${launchDir}/larry-results-${params.project_tag}/before_qc/", mode: 'copy'
@@ -66,33 +91,117 @@ process MATCH_GEX {
   """
 }
 
+def extractSampleInfo(file_path) {
+    def matcher = file_path.name =~ /^(.+)_S(\d+)_L(\d{3})_R([12])_/
+    if (!matcher) {
+        error "Unexpected filename format: ${file_path.name}"
+    }
+    def sample_id = matcher[0][1]
+    def sample_num = matcher[0][2] as Integer
+    def lane = matcher[0][3] as Integer
+    def mate = matcher[0][4] as Integer
+    
+    return [sample_id, sample_num, lane, mate, file_path]
+}
+
+
+workflow CONCAT_SAMPLE_FASTQS {
+    take:
+    fastq_files // channel of fastq file paths
+    
+    main:
+    // Extract sample information and group by sample ID
+    grouped_samples = fastq_files
+        .map { file -> extractSampleInfo(file) }
+        .groupTuple(by: 0) // Group by sample_id (index 0)
+        .map { sid, sample_nums, lanes, mates, files ->
+            // zip the parallel lists: [lane, mate, file]
+            def zipped = [lanes, mates, files].transpose()
+
+            // split by mate, sort by lane, collect file paths
+            def r1_files = zipped
+                .findAll { it[1] as int == 1 }
+                .sort    { a, b -> (a[0] as int) <=> (b[0] as int) }
+                .collect { it[2] }
+
+            def r2_files = zipped
+                .findAll { it[1] as int == 2 }
+                .sort    { a, b -> (a[0] as int) <=> (b[0] as int) }
+                .collect { it[2] }
+
+            tuple(sid, r1_files, r2_files)
+        }
+
+    // Process the samples
+    grouped_samples
+        .branch { sid, r1_files, r2_files ->
+            multi_lane: r1_files.size() > 1 || r2_files.size() > 1
+                return tuple(sid, r1_files, r2_files)
+            single_lane: true
+                return tuple(sid, r1_files[0], r2_files[0])
+        }
+        .set { samples_to_process }
+
+    // Concatenate multi-lane samples
+    CONCAT_FASTQS(samples_to_process.multi_lane)
+    
+    // Combine results: concatenated multi-lane + original single-lane
+    final_reads = CONCAT_FASTQS.out.concatenated
+        .mix(samples_to_process.single_lane)
+
+    emit:
+    reads = final_reads      // [ sample_id, R1.fastq.gz, R2.fastq.gz ]
+
+}
+
 
 workflow all {
- // Read JSON file and extract keys as a Groovy list
-    def jsonFile = file(params.sample_json)
-    def jsonText = jsonFile.text
-    def sample_keys = new groovy.json.JsonSlurper().parseText(jsonText).keySet() as List
+    // Get the list of sample IDs to filter by
+    samples_larry_ch = Channel
+        .fromPath(params.sample_csv, checkIfExists: true)
+        .splitCsv(header: true)
+        .map { row -> (row.sample_larry as String).trim() }
+        .filter { it }    // drop empties
+        .unique()
+        .collect()        // collect into a list
 
-    // Now sample_keys contains: ['sample1_larry', 'sample2_larry', ...]
-    println(sample_keys)
+    fastq_all_ch = Channel
+        .fromPath("${params.fastqs_path}/*_S*_L*_R{1,2}_*.fastq.gz", checkIfExists: true)
+        .map { f -> tuple(f.name.split('_S',2)[0], f) }   // (sid, file)
 
-    // Example: filter file pairs using these keys
-    ch_pairs = Channel.fromFilePairs("${params.fastqs_path}/(.+)_S1_L001_R[12]_001.fastq.gz", flat: true)
-        .filter { pair -> 
-            def (sample, files) = pair
-            sample_keys.contains(sample)
+    fastq_larry_ch = fastq_all_ch
+        .filter { sid, fq -> 
+            samples_larry_ch.val.contains(sid)
         }
-        .set { filtered_pairs }
+        .map { sid, fq -> fq }   // drop sid, keep file
 
-    FIND_LARRY_SEQS(filtered_pairs)
+    CONCAT_SAMPLE_FASTQS(fastq_larry_ch)
+
+    samples_all_ch = Channel
+        .fromPath(params.sample_csv, checkIfExists: true)
+        .splitCsv(header: true)
+        .map { row ->
+            tuple( (row.sample_larry as String).trim(),
+                (row.sample_gex   as String).trim(),
+                (row.group_id     as String).trim() )
+        }
+
+    merged_larry_fastqs = samples_all_ch
+        .join( CONCAT_SAMPLE_FASTQS.out.reads )                 // (sample_larry, gex, group) ⋈ (sample_larry, R1, R2)
+        .map { sid, gex, group, r1, r2 ->
+            // Re‑order to desired 5‑tuple
+            tuple(sid, gex, group, r1, r2)
+        }
+
+
+    FIND_LARRY_SEQS(merged_larry_fastqs)
+    
     LARRY_QC(FIND_LARRY_SEQS.out)
 
-    if (params.combine_samples) {
-        ASSIGN_CLONES(tuple(LARRY_QC.out.collect(){ it[0] }, LARRY_QC.out.collect(){ it[1] }))
-    } else {
-        // Use each output separately
-        ASSIGN_CLONES(LARRY_QC.out)
-    }
+    LARRY_QC.out[0].groupTuple(by: 2)
+        .set {samples_clones}
+
+    ASSIGN_CLONES(samples_clones)
 
     MATCH_GEX(ASSIGN_CLONES.out)
 
@@ -115,27 +224,5 @@ workflow from_qc {
     }
 
     MATCH_GEX(ASSIGN_CLONES.out)
-
-}
-
-workflow until_clones {
- // Read JSON file and extract keys as a Groovy list
-    def jsonFile = file(params.sample_json)
-    def jsonText = jsonFile.text
-    def sample_keys = new groovy.json.JsonSlurper().parseText(jsonText).keySet() as List
-
-    // Now sample_keys contains: ['sample1_larry', 'sample2_larry', ...]
-    println(sample_keys)
-
-    // Example: filter file pairs using these keys
-    ch_pairs = Channel.fromFilePairs("${params.fastqs_path}/(.+)_S1_L001_R[12]_001.fastq.gz", flat: true)
-        .filter { pair -> 
-            def (sample, files) = pair
-            sample_keys.contains(sample)
-        }
-        .set { filtered_pairs }
-
-    FIND_LARRY_SEQS(filtered_pairs)
-    LARRY_QC(FIND_LARRY_SEQS.out)
 
 }
