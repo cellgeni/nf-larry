@@ -2,25 +2,58 @@
 
 ## 25-258 (v0.2.0)
 
-This release introduces significant changes to the pipeline.  
+**First public release.**
+This version introduces major structural updates, improved performance, and clearer input handling.
 
-* New step: CONCAT_FASTQS
-#### ➤ Improvements
-- Input style has been modified.
+### 🚀 New
 
-#### ➤ Major Workflow & Script Changes
-**FIND_LARRY_SEQS**
-- Minor change on underlying CBUtools package and the Dockerfile allows parallelisation and significantly speeds up this process (more than 4x)
+* **New step: `CONCAT_FASTQS`**
+  Collapses lane-split FASTQs into single R1/R2 files per sample.
 
-**LARRY_QC**
-- Added more logging before each filter
-- Fixed QC plots and text in PDF report
-- Changed whitelist directory to the repository directory
+  * Skips samples that already have a single pair.
+  * Standardizes naming for clean downstream matching.
 
-**ASSIGN_CLONES → ASSIGN_BARCODES**
-- Changed the step name for clarity.
-- Refactored to support new input structure
+### ✨ Improvements
 
-**MATCH_GEX**
-- Added support for Cell Ranger outputs.
-- Refactored to support new input structure
+* **Inputs & Groups**
+
+  * Restructured input style: added clearer **group ID** handling in sample maps.
+  * Whitelist CSV is now stored directly in the repository.
+
+* **FIND\_LARRY\_SEQS**
+
+  * Underlying `CBUtools` and Dockerfile changes enable **parallelisation**, yielding **>4× faster runtime**.
+
+* **LARRY\_QC**
+
+  * Added more logging between filters for transparency.
+  * Fixed QC plots and text in the PDF report.
+  * Whitelist directory now defaults to the repo path.
+
+* **ASSIGN\_BARCODES** *(formerly `ASSIGN_CLONES`)*
+
+  * Renamed for clarity and consistency with the poster/README.
+  * Refactored to support the new input structure.
+  * Removed `combine_samples` functionality (now handled via group IDs).
+
+* **MATCH\_GEX**
+
+  * Added **support for Cell Ranger outputs** (in addition to STARsolo).
+  * Refactored to support the new input structure.
+
+### 🛠 Internal
+
+* Updated Dockerfile: streamlined how `CBUtools` is installed and used.
+* Modified process resources and updated Singularity image.
+* Cleaned up example files/scripts.
+* Removed old git submodule.
+
+---
+
+## (v0.1.0) *(Internal only)*
+
+Prototype version used internally before public release.
+
+* Core workflow with steps: `FIND_LARRY_SEQS`, `LARRY_QC`, `ASSIGN_CLONES`, `MATCH_GEX`.
+* Added early prototype workflow: `until_clones`.
+
