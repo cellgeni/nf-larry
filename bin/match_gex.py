@@ -42,6 +42,8 @@ def match_gex(samples_larry, sample_csv, ss_out, group_id, res3_pkl, gex_path, p
 
     samples_larry = samples_larry.split(',')
 
+    samples = {s: samples[s] for s in samples_larry}
+
     if len(samples_larry) == 1:
         samp_gex = samples[samples_larry[0]]
 
