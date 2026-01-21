@@ -38,7 +38,7 @@ process FIND_LARRY_SEQS {
   script:
   """
   export PIGZ='-p 8' 
-  python ${baseDir}/bin/find_larry_seqs.py ${params.fastqs_path} ${r1_file} ${r2_file} ${larry_samp}
+  python ${projectDir}/bin/find_larry_seqs.py ${params.fastqs_path} ${r1_file} ${r2_file} ${larry_samp}
   """
 }
 
@@ -74,7 +74,7 @@ process ASSIGN_BARCODES {
 
   script:
   """
-  python ${baseDir}/bin/assign_barcodes.py ${pkl.join(",")} ${params.dispr_filter}
+  python ${projectDir}/bin/assign_barcodes.py ${pkl.join(",")} ${params.dispr_filter}
   """
 }
 
