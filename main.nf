@@ -46,18 +46,19 @@ process LARRY_QC {
 
   publishDir "${launchDir}/larry-results-${params.project_tag}/after_qc/", mode: 'copy'
 
+//   memory { 160.GB * task.attempt }
+//   memory { pkl.size() < 300.MB ? ( 97.GB ( pkl.size() / ( 1024 * 1024 * 1024 ) ) * task.attempt ) : 160.GB * task.attempt }
+
   input:
   tuple val(larry_samp), val(gex_samp), val(group), path(pkl)
 
   output:
   tuple val(larry_samp), val(gex_samp), val(group), path("*.pkl")
-  path("*.pdf"), optional: true
-
-  memory { pkl.size() < 300.MB ? ( 97.GB * ( pkl.size() / ( 1024 * 1024 * 1024 ) ) * task.attempt ) : 160.GB * task.attempt }
+  path("*.html"), optional: true
 
   script:
   """
-  python ${baseDir}/bin/larry_qc.py ${pkl} ${larry_samp} ${params.check_whitelist ? '--check_whitelist' : ''} ${params.make_pdf ? '--make_pdf' : ''} --whitelist_csv ${baseDir}/data/larry_whitelist.csv
+  python ${projectDir}/bin/larry_qc.py ${pkl} ${larry_samp} --whitelist_csv ${params.whitelist_csv} ${params.skip_hamming ? '--skip_hamming' : ''} ${params.auto_hamming ? '--auto_hamming' : ''}
   """
 }
 
