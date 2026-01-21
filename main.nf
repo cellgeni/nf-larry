@@ -215,19 +215,28 @@ workflow all {
 
 
 workflow from_qc {
-    Channel.fromPath(params.barm_csv)
-        .splitCsv(header: false)
-        .map { row -> tuple(row[0], file(row[1])) }
+    Channel.fromPath(params.sample_csv)
+        .splitCsv(header: true)
         .set { barm_tuples }
 
     LARRY_QC(barm_tuples)
 
-    if (params.combine_samples) {
-        ASSIGN_BARCODES(tuple(LARRY_QC.out[0].collect(){ it[0] }, LARRY_QC.out[0].collect(){ it[1] }))
-    } else {
-        // Use each output separately
-        ASSIGN_BARCODES(LARRY_QC.out[0])
-    }
+    LARRY_QC.out[0].groupTuple(by: 2)
+        .set {samples_clones}
+
+    ASSIGN_BARCODES(samples_clones)
+
+    MATCH_GEX(ASSIGN_BARCODES.out)
+
+}
+
+workflow from_assign {
+    Channel.fromPath(params.sample_csv)
+        .splitCsv(header: false, skip: 1)
+        .groupTuple(by: 2)
+        .set { samples_clones }
+
+    ASSIGN_BARCODES(samples_clones)
 
     MATCH_GEX(ASSIGN_BARCODES.out)
 
