@@ -93,7 +93,7 @@ process MATCH_GEX {
 
   script:
   """
-  python ${baseDir}/bin/match_gex.py ${larry_samp.join(',')} ${params.sample_csv} ${params.ss_out} ${group} ${pkl} ${params.gex_path} ${params.plot_cumulative ? '--plot_cumulative' : ''}
+  python ${projectDir}/bin/match_gex.py ${larry_samp.join(',')} ${params.sample_csv} ${params.ss_out} ${group} ${pkl} ${params.gex_path} ${params.plot_cumulative ? '--plot_cumulative' : ''} --cb_filename ${params.cb_filename}
   """
 }
 

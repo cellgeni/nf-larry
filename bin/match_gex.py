@@ -11,14 +11,34 @@ def open_from_pickle(pkl_file):
         bar_m = pickle.load(handle)
     return bar_m
 	
-def detect_gex_source(gex_root: Path, ss_out: str = "Gene") -> Path:
+def detect_gex_source(
+    gex_root: Path,
+    ss_out: str = "Gene",
+    cb_filename: str = "cellbender_out_filtered.h5",
+    samples: dict | None = None,
+) -> dict:
     """
-    Inspect the first sample directory to infer whether data come from Cell Ranger
-    or STARsolo and return the relative subdirectory (under each sample) that
-    contains the 10X-style matrix for sc.read_10x_mtx.
+    Detect the layout of the GEX data.
+
+    Returns a dict with keys:
+    - kind: "mtx" for Cell Ranger / STARsolo matrix folders, "cellbender" for
+      CellBender h5 outputs.
+    - rel_path: relative path (for mtx) or filename (for h5) to use under each
+      sample directory. If gex_root is a single h5 file, rel_path is that name
+      and single_file is True.
+    - single_file: True when gex_root itself is an h5 (single sample CellBender).
     """
-    subdirs = [d for d in sorted(gex_root.iterdir()) if d.is_dir()]
+    # Single CellBender h5 provided directly
+    if gex_root.is_file() and gex_root.suffix in {".h5", ".hdf5"}:
+        return {"kind": "cellbender", "rel_path": gex_root.name, "single_file": True}
+
+    allowed = set(samples.values()) if samples else None
+    subdirs = [d for d in sorted(gex_root.iterdir()) if d.is_dir() and (allowed is None or d.name in allowed)]
     if not subdirs:
+        if allowed:
+            raise FileNotFoundError(
+                f"No subdirectories in {gex_root} match provided samples: {sorted(allowed)}"
+            )
         raise FileNotFoundError(f"No subdirectories found in {gex_root}")
     first_subdir = subdirs[0]
 
@@ -28,14 +48,32 @@ def detect_gex_source(gex_root: Path, ss_out: str = "Gene") -> Path:
     ss_rel = Path("output") / ss_out / "filtered"
 
     if (first_subdir / cr_rel).is_dir():
-        return cr_rel
+        return {"kind": "mtx", "rel_path": cr_rel, "single_file": False}
     if (first_subdir / ss_rel).is_dir():
-        return ss_rel
+        return {"kind": "mtx", "rel_path": ss_rel, "single_file": False}
+
+    # CellBender output h5 inside sample directory (require explicit filename)
+    cb_name = Path(cb_filename).name
+    cb_candidates = list(first_subdir.glob(cb_name))
+    # Allow .hdf5 if caller gave .h5 default name
+    if not cb_candidates and cb_name.endswith(".h5"):
+        cb_candidates = list(first_subdir.glob(cb_name.replace(".h5", ".hdf5")))
+    if cb_candidates:
+        return {
+            "kind": "cellbender",
+            "rel_path": cb_candidates[0].name,
+            "single_file": False,
+        }
+
+    if cb_name:
+        raise FileNotFoundError(
+            f"Expected CellBender file '{cb_name}' (or .hdf5) under {first_subdir}"
+        )
     raise FileNotFoundError(
-        f"Neither Cell Ranger ({cr_rel}) nor STARsolo ({ss_rel}) folder found under {first_subdir}"
+        "Could not detect GEX source: expected Cell Ranger, STARsolo, or CellBender outputs"
     )
 
-def match_gex(samples_larry, sample_csv, ss_out, group_id, res3_pkl, gex_path, plot_cumulative):
+def match_gex(samples_larry, sample_csv, ss_out, group_id, res3_pkl, gex_path, plot_cumulative, cb_filename):
     gex_root = Path(gex_path)  # pathlib early
     res3_tabs = open_from_pickle(res3_pkl)
     samples = pd.read_csv(sample_csv, index_col=0)['sample_gex'].to_dict()
@@ -55,7 +93,15 @@ def match_gex(samples_larry, sample_csv, ss_out, group_id, res3_pkl, gex_path, p
     }
     tmp["Clone"] = tmp["Barcode"].map(barcode_to_clone)
 
-    gex_rel_subdir = detect_gex_source(gex_root, ss_out=ss_out)
+    gex_source = detect_gex_source(
+        gex_root,
+        ss_out=ss_out,
+        cb_filename=cb_filename,
+        samples=samples,
+    )
+    gex_rel_subdir = gex_source["rel_path"]
+    is_cellbender = gex_source["kind"] == "cellbender"
+    single_file_cb = gex_source.get("single_file", False)
 
     if len(samples_larry) > 1:
         tmp['sample_larry'] = [i.split("_")[0] for i in tmp.index]
@@ -64,25 +110,59 @@ def match_gex(samples_larry, sample_csv, ss_out, group_id, res3_pkl, gex_path, p
         tmp['sample_larry'] = tmp.index.str.split('_').str[0]
 
         adatas = []
-        # Iterate over sample/*/<relative_subdir>
-        for path in sorted(gex_root.glob(f"*/{gex_rel_subdir.as_posix()}")):
-            sample_id = path.relative_to(gex_root).parts[0]  # first dir under root
-            if sample_id in samples.values():
-                adata_tmp = sc.read_10x_mtx(path)
-                adata_tmp.obs['barcodes'] = adata_tmp.obs_names
-                adata_tmp.obs['sanger_id'] = sample_id
-                adatas.append(adata_tmp)
-        if not adatas:
-            raise FileNotFoundError(f"No GEX directories matched pattern */{gex_rel_subdir} under {gex_root}")
+        if is_cellbender:
+            # Iterate over sample directories containing CellBender h5 files
+            for sample_dir in sorted(gex_root.iterdir()):
+                if not sample_dir.is_dir():
+                    continue
+                sample_id = sample_dir.name
+                if sample_id in samples.values():
+                    h5_path = sample_dir / gex_rel_subdir
+                    if not h5_path.is_file():
+                        continue
+                    adata_tmp = sc.read_10x_h5(h5_path)
+                    adata_tmp.obs['barcodes'] = adata_tmp.obs_names
+                    adata_tmp.obs['sanger_id'] = sample_id
+                    adata_tmp.var['gene_symbols'] = adata_tmp.var_names
+                    adata_tmp.var_names = adata_tmp.var['gene_ids']
+                    adatas.append(adata_tmp)
+            if not adatas:
+                raise FileNotFoundError(
+                    f"No CellBender h5 files matching */{gex_rel_subdir} under {gex_root}"
+                )
+        else:
+            # Iterate over sample/*/<relative_subdir>
+            for path in sorted(gex_root.glob(f"*/{gex_rel_subdir.as_posix()}")):
+                sample_id = path.relative_to(gex_root).parts[0]  # first dir under root
+                if sample_id in samples.values():
+                    adata_tmp = sc.read_10x_mtx(path)
+                    adata_tmp.obs['barcodes'] = adata_tmp.obs_names
+                    adata_tmp.obs['sanger_id'] = sample_id
+                    adata_tmp.var['gene_symbols'] = adata_tmp.var_names
+                    adata_tmp.var_names = adata_tmp.var['gene_ids']
+                    adatas.append(adata_tmp)
+            if not adatas:
+                raise FileNotFoundError(f"No GEX directories matched pattern */{gex_rel_subdir} under {gex_root}")
+
         adata = sc.concat(adatas)
         adata.obs_names = [
             f"{bc}-{sid}" for sid, bc in zip(adata.obs['sanger_id'], adata.obs['barcodes'])
         ]
+        adata.var = adatas[0].var
     else:
         tmp['sample_larry'] = samples_larry[0]
         tmp['sample_gex'] = tmp['sample_larry'].map(samples)
         tmp.index = [f"{i}-{j}" for i, j in zip(tmp.index, tmp['sample_gex'])]
-        adata = sc.read_10x_mtx(gex_root / samp_gex / gex_rel_subdir)
+        if is_cellbender:
+            if single_file_cb:
+                h5_path = gex_root
+            else:
+                h5_path = gex_root / samp_gex / gex_rel_subdir
+            if not h5_path.is_file():
+                raise FileNotFoundError(f"CellBender h5 not found at {h5_path}")
+            adata = sc.read_10x_h5(h5_path)
+        else:
+            adata = sc.read_10x_mtx(gex_root / samp_gex / gex_rel_subdir)
         adata.obs_names = [f"{i}-{samp_gex}" for i in adata.obs_names]
 
     clones = tmp[['Clone', 'Barcode', 'Barcode_n']].reset_index(drop=True).set_index("Clone").drop_duplicates()
