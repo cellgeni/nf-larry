@@ -611,6 +611,15 @@ section {{
     border-radius: 0.75rem;
     box-shadow: 0 12px 30px rgba(15, 23, 42, 0.07);
 }}
+.table-container.scrollable {{
+    max-height: 420px;
+    overflow-y: auto;
+}}
+.table-container.scrollable thead {{
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}}
 table {{
     width: 100%;
     border-collapse: collapse;
@@ -970,7 +979,7 @@ document.addEventListener("DOMContentLoaded", function() {{
         
         <div class="card">
             <h3>Top Barcodes (by cell count)</h3>
-            <div class="table-container">
+            <div class="table-container scrollable">
                 <table>
                     <thead>
                         <tr>
