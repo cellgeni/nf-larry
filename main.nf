@@ -46,8 +46,13 @@ process LARRY_QC {
 
   publishDir "${launchDir}/larry-results-${params.project_tag}/after_qc/", mode: 'copy'
 
-//   memory { 160.GB * task.attempt }
-//   memory { pkl.size() < 300.MB ? ( 97.GB ( pkl.size() / ( 1024 * 1024 * 1024 ) ) * task.attempt ) : 160.GB * task.attempt }
+  memory {
+    def sizeGb = pkl.size() / (1024.0 * 1024 * 1024)
+    // Power-law fit from successful runs in trace_20260126_1815: memGb ~= A + B*sqrt(sizeGb)
+    def memGb = (-734.5d + (2107.3d * Math.sqrt(sizeGb))) * 1.1d
+    memGb = Math.max(16.0d, Math.min(500.0d, memGb))
+    (memGb.GB) * task.attempt
+  }
 
   input:
   tuple val(larry_samp), val(gex_samp), val(group), path(pkl)
