@@ -11,6 +11,16 @@ def open_from_pickle(pkl_file):
         bar_m = pickle.load(handle)
     return bar_m
 	
+DEFAULT_CB_FILENAMES = ["cellbender_filtered.h5", "cellbender_out_filtered.h5"]
+
+
+def _cb_filenames_from_param(cb_filename: str) -> list[str]:
+    cb_filename = (cb_filename or "").strip()
+    if not cb_filename or cb_filename in DEFAULT_CB_FILENAMES:
+        return DEFAULT_CB_FILENAMES
+    return [cb_filename]
+
+
 def detect_gex_source(
     gex_root: Path,
     ss_out: str = "Gene",
@@ -53,21 +63,24 @@ def detect_gex_source(
         return {"kind": "mtx", "rel_path": ss_rel, "single_file": False}
 
     # CellBender output h5 inside sample directory (require explicit filename)
-    cb_name = Path(cb_filename).name
-    cb_candidates = list(first_subdir.glob(cb_name))
-    # Allow .hdf5 if caller gave .h5 default name
-    if not cb_candidates and cb_name.endswith(".h5"):
-        cb_candidates = list(first_subdir.glob(cb_name.replace(".h5", ".hdf5")))
-    if cb_candidates:
-        return {
-            "kind": "cellbender",
-            "rel_path": cb_candidates[0].name,
-            "single_file": False,
-        }
+    cb_names = _cb_filenames_from_param(cb_filename)
+    cb_candidates = []
+    for name in cb_names:
+        cb_name = Path(name).name
+        cb_candidates.extend(list(first_subdir.glob(cb_name)))
+        # Allow .hdf5 if caller gave .h5 default name
+        if not cb_candidates and cb_name.endswith(".h5"):
+            cb_candidates.extend(list(first_subdir.glob(cb_name.replace(".h5", ".hdf5"))))
+        if cb_candidates:
+            return {
+                "kind": "cellbender",
+                "rel_path": cb_candidates[0].name,
+                "single_file": False,
+            }
 
-    if cb_name:
+    if cb_names:
         raise FileNotFoundError(
-            f"Expected CellBender file '{cb_name}' (or .hdf5) under {first_subdir}"
+            f"Expected CellBender file(s) {cb_names} (or .hdf5) under {first_subdir}"
         )
     raise FileNotFoundError(
         "Could not detect GEX source: expected Cell Ranger, STARsolo, or CellBender outputs"
@@ -102,6 +115,7 @@ def match_gex(samples_larry, sample_csv, ss_out, group_id, res3_pkl, gex_path, p
     gex_rel_subdir = gex_source["rel_path"]
     is_cellbender = gex_source["kind"] == "cellbender"
     single_file_cb = gex_source.get("single_file", False)
+    cb_names = _cb_filenames_from_param(cb_filename)
 
     if len(samples_larry) > 1:
         tmp['sample_larry'] = [i.split("_")[0] for i in tmp.index]
@@ -117,8 +131,18 @@ def match_gex(samples_larry, sample_csv, ss_out, group_id, res3_pkl, gex_path, p
                     continue
                 sample_id = sample_dir.name
                 if sample_id in samples.values():
-                    h5_path = sample_dir / gex_rel_subdir
-                    if not h5_path.is_file():
+                    h5_path = None
+                    for name in cb_names:
+                        candidate = sample_dir / Path(name).name
+                        if candidate.is_file():
+                            h5_path = candidate
+                            break
+                        if candidate.suffix == ".h5":
+                            alt = candidate.with_suffix(".hdf5")
+                            if alt.is_file():
+                                h5_path = alt
+                                break
+                    if h5_path is None:
                         continue
                     adata_tmp = sc.read_10x_h5(h5_path)
                     adata_tmp.obs['barcodes'] = adata_tmp.obs_names
@@ -128,7 +152,7 @@ def match_gex(samples_larry, sample_csv, ss_out, group_id, res3_pkl, gex_path, p
                     adatas.append(adata_tmp)
             if not adatas:
                 raise FileNotFoundError(
-                    f"No CellBender h5 files matching */{gex_rel_subdir} under {gex_root}"
+                    f"No CellBender h5 files matching {cb_names} under {gex_root}"
                 )
         else:
             # Iterate over sample/*/<relative_subdir>
@@ -157,9 +181,22 @@ def match_gex(samples_larry, sample_csv, ss_out, group_id, res3_pkl, gex_path, p
             if single_file_cb:
                 h5_path = gex_root
             else:
-                h5_path = gex_root / samp_gex / gex_rel_subdir
-            if not h5_path.is_file():
-                raise FileNotFoundError(f"CellBender h5 not found at {h5_path}")
+                h5_path = None
+                sample_dir = gex_root / samp_gex
+                for name in cb_names:
+                    candidate = sample_dir / Path(name).name
+                    if candidate.is_file():
+                        h5_path = candidate
+                        break
+                    if candidate.suffix == ".h5":
+                        alt = candidate.with_suffix(".hdf5")
+                        if alt.is_file():
+                            h5_path = alt
+                            break
+            if h5_path is None or not h5_path.is_file():
+                raise FileNotFoundError(
+                    f"CellBender h5 not found for sample {samp_gex} using {cb_names} under {gex_root}"
+                )
             adata = sc.read_10x_h5(h5_path)
         else:
             adata = sc.read_10x_mtx(gex_root / samp_gex / gex_rel_subdir)
